@@ -1,0 +1,26 @@
+[project]
+name = "pdf2llm"
+version = "0.1.0"
+description = "Convert PDFs into LLM-friendly Markdown with per-page markers and extracted images."
+requires-python = ">=3.11"
+dependencies = [
+    "pymupdf4llm>=1.27.2.3",
+]
+
+[project.scripts]
+pdf2llm = "pdf2llm.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.9,<0.10"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-root = ""
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+]
