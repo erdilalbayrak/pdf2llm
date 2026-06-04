@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import re
+import shutil
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -26,13 +28,23 @@ _IMAGE_LINK = re.compile(r"!\[(?P<alt>[^\]]*)\]\((?P<path>[^)]*)\)")
 
 
 def rename_page_images(
-    text: str, page_number: int, stem: str, output_dir: Path
+    text: str,
+    page_number: int,
+    stem: str,
+    output_dir: Path,
+    image_source_dir: Path | None = None,
 ) -> tuple[str, list[str]]:
     """Rename a page's extracted images to ``<stem>-p<N>-<idx>.png`` in
     ``output_dir`` and rewrite the Markdown links to bare filenames.
 
+    Images are read from ``image_source_dir`` (defaults to ``output_dir``) and
+    moved into ``output_dir``; this lets the caller have the conversion engine
+    write into a separate, path-safe staging directory.
+
     Assumes each image link on the page refers to a distinct written file.
     """
+    if image_source_dir is None:
+        image_source_dir = output_dir
     images: list[str] = []
     counter = 0
 
@@ -41,7 +53,7 @@ def rename_page_images(
         ref = match.group("path").strip()
         if not ref:
             return match.group(0)
-        src = output_dir / Path(ref).name
+        src = image_source_dir / Path(ref).name
         # Only rename/rewrite links that point to an actually written file,
         # so a phantom link can't produce a dead reference or a phantom entry.
         if not src.exists():
@@ -50,7 +62,7 @@ def rename_page_images(
         new_name = f"{stem}-p{page_number}-{counter}.png"
         dst = output_dir / new_name
         if src.resolve() != dst.resolve():
-            src.replace(dst)
+            shutil.move(str(src), str(dst))
         images.append(new_name)
         return f"![{match.group('alt')}]({new_name})"
 
@@ -81,25 +93,32 @@ def convert(input_pdf: Path, output_dir: Path) -> ConversionResult:
 
     doc = pymupdf.open(input_pdf)
     try:
-        chunks = pymupdf4llm.to_markdown(
-            doc,
-            page_chunks=True,
-            write_images=True,
-            image_path=str(output_dir),
-            image_format="png",
-        )
+        # pymupdf4llm's layout image writer sanitizes the *entire* image save
+        # path (spaces -> "_", several dashes -> "-") while only creating the
+        # unsanitized directory, so writing directly into an output dir that
+        # contains spaces/special chars fails with ENOENT. Stage images in a
+        # path-safe temp dir, then move them into output_dir ourselves.
+        with tempfile.TemporaryDirectory(prefix="pdf2llm-images-") as tmp:
+            image_dir = Path(tmp)
+            chunks = pymupdf4llm.to_markdown(
+                doc,
+                page_chunks=True,
+                write_images=True,
+                image_path=str(image_dir),
+                image_format="png",
+            )
+
+            parts: list[str] = []
+            image_files: list[str] = []
+            for chunk in chunks:
+                page_number = chunk["metadata"]["page_number"]
+                body, images = rename_page_images(
+                    chunk["text"], page_number, stem, output_dir, image_dir
+                )
+                parts.append(wrap_page(page_number, body))
+                image_files.extend(images)
     finally:
         doc.close()
-
-    parts: list[str] = []
-    image_files: list[str] = []
-    for chunk in chunks:
-        page_number = chunk["metadata"]["page_number"]
-        body, images = rename_page_images(
-            chunk["text"], page_number, stem, output_dir
-        )
-        parts.append(wrap_page(page_number, body))
-        image_files.extend(images)
 
     markdown = "\n\n".join(parts) + "\n"
     markdown_file = output_dir / f"{stem}.md"

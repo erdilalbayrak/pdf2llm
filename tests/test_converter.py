@@ -127,6 +127,25 @@ def test_convert_extracts_image_to_output_root(make_pdf, tmp_path):
     assert "![](doc-p1-1.png)" in md or "](doc-p1-1.png)" in md
 
 
+def test_convert_extracts_image_when_output_dir_has_spaces_and_special_chars(
+    make_pdf, tmp_path
+):
+    # pymupdf4llm's layout image writer sanitizes the *entire* save path
+    # (spaces -> "_", em-dash -> "-") while only creating the unsanitized
+    # directory, so writing images into a dir with spaces/special chars used
+    # to fail with ENOENT. Images must still be extracted into the real dir.
+    pdf = make_pdf("doc.pdf", pages=1, with_image=True)
+    out_dir = tmp_path / "RFC_ Ontology Platform \u2014 High-Level Architecture"
+
+    result = convert(pdf, out_dir)
+
+    assert result.images >= 1
+    assert result.image_files[0] == "doc-p1-1.png"
+    assert (out_dir / "doc-p1-1.png").exists()
+    md = result.markdown_file.read_text()
+    assert "doc-p1-1.png" in md
+
+
 def test_convert_overwrites_existing_markdown_silently(make_pdf, tmp_path):
     out_dir = tmp_path / "out"
     out_dir.mkdir()
