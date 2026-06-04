@@ -41,11 +41,15 @@ def rename_page_images(
         ref = match.group("path").strip()
         if not ref:
             return match.group(0)
+        src = output_dir / Path(ref).name
+        # Only rename/rewrite links that point to an actually written file,
+        # so a phantom link can't produce a dead reference or a phantom entry.
+        if not src.exists():
+            return match.group(0)
         counter += 1
         new_name = f"{stem}-p{page_number}-{counter}.png"
-        src = output_dir / Path(ref).name
         dst = output_dir / new_name
-        if src.resolve() != dst.resolve() and src.exists():
+        if src.resolve() != dst.resolve():
             src.replace(dst)
         images.append(new_name)
         return f"![{match.group('alt')}]({new_name})"

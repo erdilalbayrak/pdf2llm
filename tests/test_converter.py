@@ -1,4 +1,11 @@
-from pdf2llm.converter import wrap_page
+from pathlib import Path
+
+from pdf2llm.converter import (
+    ConversionResult,
+    convert,
+    rename_page_images,
+    wrap_page,
+)
 
 
 def test_wrap_page_adds_start_end_markers_and_heading():
@@ -12,11 +19,6 @@ def test_wrap_page_strips_surrounding_whitespace_in_body():
     out = wrap_page(1, "\n\n  Spaced body  \n\n")
     assert "## Page 1\n\nSpaced body" in out
     assert "<!-- page: 1 end -->" in out
-
-
-from pathlib import Path
-
-from pdf2llm.converter import rename_page_images
 
 
 def test_rename_page_images_renames_file_and_rewrites_link(tmp_path):
@@ -58,9 +60,28 @@ def test_rename_page_images_no_images_is_noop(tmp_path):
     assert new_text == text
 
 
-import json as _json  # noqa: F401  (kept for parity; not required)
+def test_rename_page_images_increments_index_per_page(tmp_path):
+    (tmp_path / "a.png").write_bytes(b"A")
+    (tmp_path / "b.png").write_bytes(b"B")
+    text = "![](a.png)\n\n![](b.png)"
 
-from pdf2llm.converter import ConversionResult, convert
+    new_text, images = rename_page_images(
+        text, page_number=5, stem="doc", output_dir=tmp_path
+    )
+
+    assert images == ["doc-p5-1.png", "doc-p5-2.png"]
+    assert "![](doc-p5-1.png)" in new_text
+    assert "![](doc-p5-2.png)" in new_text
+
+
+def test_rename_page_images_leaves_phantom_links_untouched(tmp_path):
+    # Link with no corresponding file on disk: must not be rewritten or counted.
+    text = "![](missing.png)"
+    new_text, images = rename_page_images(
+        text, page_number=1, stem="doc", output_dir=tmp_path
+    )
+    assert images == []
+    assert new_text == text
 
 
 def test_convert_writes_markdown_with_page_markers(make_pdf, tmp_path):
@@ -104,3 +125,17 @@ def test_convert_extracts_image_to_output_root(make_pdf, tmp_path):
     assert (out_dir / "doc-p1-1.png").exists()
     md = result.markdown_file.read_text()
     assert "![](doc-p1-1.png)" in md or "](doc-p1-1.png)" in md
+
+
+def test_convert_overwrites_existing_markdown_silently(make_pdf, tmp_path):
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    stale = out_dir / "report.md"
+    stale.write_text("STALE CONTENT")
+
+    pdf = make_pdf("report.pdf", pages=1, with_image=False)
+    result = convert(pdf, out_dir)
+
+    assert result.markdown_file == stale
+    assert "STALE CONTENT" not in stale.read_text()
+    assert "<!-- page: 1 start -->" in stale.read_text()

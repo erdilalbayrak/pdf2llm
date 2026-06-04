@@ -1,3 +1,4 @@
+import argparse
 import json
 
 import pytest
@@ -7,15 +8,22 @@ from pdf2llm.cli import main as cli_main
 
 
 def test_pdf_file_rejects_missing(tmp_path):
-    with pytest.raises(Exception):
+    with pytest.raises(argparse.ArgumentTypeError):
         pdf_file(str(tmp_path / "nope.pdf"))
 
 
 def test_pdf_file_rejects_non_pdf(tmp_path):
     f = tmp_path / "note.txt"
     f.write_text("hi")
-    with pytest.raises(Exception):
+    with pytest.raises(argparse.ArgumentTypeError):
         pdf_file(str(f))
+
+
+def test_pdf_file_rejects_directory(tmp_path):
+    d = tmp_path / "adir.pdf"
+    d.mkdir()
+    with pytest.raises(argparse.ArgumentTypeError):
+        pdf_file(str(d))
 
 
 def test_pdf_file_accepts_existing_pdf(make_pdf):
@@ -53,6 +61,8 @@ def test_json_summary_on_stdout(make_pdf, tmp_path, capsys):
     assert payload["markdown_file"].endswith("report.md")
     assert payload["input"].endswith("report.pdf")
     assert "elapsed_seconds" in payload
+    assert payload["images"] == 0
+    assert payload["image_files"] == []
 
 
 def test_quiet_suppresses_stderr_but_keeps_summary(make_pdf, tmp_path, capsys):
