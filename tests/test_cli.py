@@ -1,6 +1,9 @@
+import json
+
 import pytest
 
 from pdf2llm.cli import build_parser, main, pdf_file
+from pdf2llm.cli import main as cli_main
 
 
 def test_pdf_file_rejects_missing(tmp_path):
@@ -34,11 +37,6 @@ def test_bad_input_prints_help_to_stderr_and_exits_2(make_pdf, tmp_path, capsys)
     assert code == 2
     err = capsys.readouterr().err
     assert "usage:" in err.lower()
-
-
-import json
-
-from pdf2llm.cli import main as cli_main
 
 
 def test_json_summary_on_stdout(make_pdf, tmp_path, capsys):
@@ -91,3 +89,19 @@ def test_default_run_prints_progress_to_stderr(make_pdf, tmp_path, capsys):
     captured = capsys.readouterr()
     assert captured.err != ""  # progress went to stderr
     assert "pages" in captured.out.lower()  # human summary on stdout
+
+
+def test_corrupt_pdf_reports_error_and_exits_1(tmp_path, capsys):
+    # Passes the .pdf-extension arg validator but is not a valid PDF, so
+    # conversion raises and the runner must report status=error / exit 1.
+    bad = tmp_path / "broken.pdf"
+    bad.write_bytes(b"not a real pdf")
+    out_dir = tmp_path / "out"
+
+    code = cli_main([str(bad), str(out_dir), "--json"])
+    assert code == 1
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "error"
+    assert payload["error"]
+    assert payload["pages"] == 0
