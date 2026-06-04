@@ -56,3 +56,51 @@ def test_rename_page_images_no_images_is_noop(tmp_path):
     )
     assert images == []
     assert new_text == text
+
+
+import json as _json  # noqa: F401  (kept for parity; not required)
+
+from pdf2llm.converter import ConversionResult, convert
+
+
+def test_convert_writes_markdown_with_page_markers(make_pdf, tmp_path):
+    pdf = make_pdf("report.pdf", pages=2, with_image=False)
+    out_dir = tmp_path / "out"
+
+    result = convert(pdf, out_dir)
+
+    assert isinstance(result, ConversionResult)
+    assert result.markdown_file == out_dir / "report.md"
+    assert result.markdown_file.exists()
+    md = result.markdown_file.read_text()
+    assert "<!-- page: 1 start -->" in md
+    assert "## Page 1" in md
+    assert "<!-- page: 1 end -->" in md
+    assert "<!-- page: 2 start -->" in md
+    assert "<!-- page: 2 end -->" in md
+    assert result.pages == 2
+
+
+def test_convert_creates_missing_output_dir(make_pdf, tmp_path):
+    pdf = make_pdf("a.pdf", pages=1, with_image=False)
+    out_dir = tmp_path / "nested" / "out"
+    assert not out_dir.exists()
+
+    result = convert(pdf, out_dir)
+
+    assert out_dir.is_dir()
+    assert result.markdown_file.exists()
+
+
+def test_convert_extracts_image_to_output_root(make_pdf, tmp_path):
+    pdf = make_pdf("doc.pdf", pages=1, with_image=True)
+    out_dir = tmp_path / "out"
+
+    result = convert(pdf, out_dir)
+
+    assert result.images >= 1
+    # Image named per convention and placed in the output root.
+    assert result.image_files[0] == "doc-p1-1.png"
+    assert (out_dir / "doc-p1-1.png").exists()
+    md = result.markdown_file.read_text()
+    assert "![](doc-p1-1.png)" in md or "](doc-p1-1.png)" in md
