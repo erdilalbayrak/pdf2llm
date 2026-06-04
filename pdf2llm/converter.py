@@ -93,11 +93,14 @@ def convert(input_pdf: Path, output_dir: Path) -> ConversionResult:
 
     doc = pymupdf.open(input_pdf)
     try:
-        # pymupdf4llm's layout image writer sanitizes the *entire* image save
-        # path (spaces -> "_", several dashes -> "-") while only creating the
-        # unsanitized directory, so writing directly into an output dir that
-        # contains spaces/special chars fails with ENOENT. Stage images in a
-        # path-safe temp dir, then move them into output_dir ourselves.
+        # pymupdf4llm's layout extraction mode (default) mis-maps some glyphs
+        # (e.g. "<", "(") into the Unicode Private Use Area, corrupting the
+        # text for downstream LLM use. The classic extraction path preserves
+        # correct Unicode, so force it off.
+        pymupdf4llm.use_layout(False)
+        # pymupdf4llm sanitizes the image save path; stage images in a
+        # path-safe temp dir, then move them into output_dir ourselves so
+        # output dirs containing spaces/special chars work reliably.
         with tempfile.TemporaryDirectory(prefix="pdf2llm-images-") as tmp:
             image_dir = Path(tmp)
             chunks = pymupdf4llm.to_markdown(
@@ -111,7 +114,10 @@ def convert(input_pdf: Path, output_dir: Path) -> ConversionResult:
             parts: list[str] = []
             image_files: list[str] = []
             for chunk in chunks:
-                page_number = chunk["metadata"]["page_number"]
+                meta = chunk["metadata"]
+                # Classic extraction uses "page" (1-based); the layout path
+                # used "page_number". Support both.
+                page_number = meta.get("page_number") or meta["page"]
                 body, images = rename_page_images(
                     chunk["text"], page_number, stem, output_dir, image_dir
                 )

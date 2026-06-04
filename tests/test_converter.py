@@ -158,3 +158,20 @@ def test_convert_overwrites_existing_markdown_silently(make_pdf, tmp_path):
     assert result.markdown_file == stale
     assert "STALE CONTENT" not in stale.read_text()
     assert "<!-- page: 1 start -->" in stale.read_text()
+
+
+def test_convert_uses_classic_extraction_and_emits_no_pua_chars(make_pdf, tmp_path):
+    # pymupdf4llm's layout mode (default) mis-maps some glyphs into the Unicode
+    # Private Use Area, corrupting text for LLM use. convert() must force the
+    # classic path and never emit PUA codepoints.
+    import pymupdf4llm
+
+    pymupdf4llm.use_layout(True)  # simulate a prior caller enabling layout mode
+    pdf = make_pdf("doc.pdf", pages=2, with_image=True)
+    out_dir = tmp_path / "out"
+
+    result = convert(pdf, out_dir)
+
+    assert pymupdf4llm._use_layout is False
+    md = result.markdown_file.read_text()
+    assert not any(0xE000 <= ord(ch) <= 0xF8FF for ch in md)
